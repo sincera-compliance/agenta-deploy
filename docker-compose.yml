@@ -238,7 +238,6 @@ services:
     image: postgres:17
     volumes:
     - postgres-data:/var/lib/postgresql/data/
-    - ./init-db-oss.sql:/docker-entrypoint-initdb.d/init-db.sql
     env_file:
     - .env
     environment:
@@ -255,6 +254,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    configs:
+    - source: agenta_init_db
+      target: /docker-entrypoint-initdb.d/init-db.sql
   redis-volatile:
     image: redis:8
     command: 'redis-server --appendonly no --save "" --maxmemory 512mb --maxmemory-policy volatile-lru --port 6379
@@ -342,8 +344,6 @@ services:
       start_period: 5s
   nginx:
     image: nginx:1
-    volumes:
-    - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     env_file:
     - .env
     environment:
@@ -357,6 +357,9 @@ services:
     restart: always
     expose:
     - '80'
+    configs:
+    - source: agenta_nginx_conf
+      target: /etc/nginx/nginx.conf
   supertokens:
     image: supertokens/supertokens-postgresql:11
     env_file:
@@ -388,3 +391,97 @@ volumes:
   redis-volatile-data: null
   redis-durable-data: null
   seaweed-data: null
+configs:
+  agenta_nginx_conf:
+    content: "events {\n    worker_connections 1024;\n}\n\nhttp {\n    include /etc/nginx/mime.types;\n    default_type application/octet-stream;\n\
+      \n    resolver 127.0.0.11 valid=30s;\n\n    access_log /var/log/nginx/access.log;\n    error_log /var/log/nginx/error.log;\n\
+      \n    gzip on;\n    gzip_vary on;\n    gzip_min_length 1024;\n    gzip_types text/plain text/css text/xml text/javascript\
+      \ application/javascript application/xml+rss application/json;\n\n    limit_req_zone $$binary_remote_addr zone=api:10m\
+      \ rate=10r/s;\n\n    server {\n        listen 80;\n        server_name _;\n\n        add_header X-Frame-Options DENY;\n\
+      \        add_header X-Content-Type-Options nosniff;\n        add_header X-XSS-Protection \"1; mode=block\";\n\n    \
+      \    client_max_body_size 32m;\n\n        location /api/ {\n            limit_req zone=api burst=20 nodelay;\n\n   \
+      \         proxy_pass http://api:8000/;\n            proxy_http_version 1.1;\n            proxy_set_header Host $$host;\n\
+      \            proxy_set_header X-Real-IP $$remote_addr;\n            proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;\n\
+      \            proxy_set_header X-Forwarded-Proto $$scheme;\n            proxy_set_header Upgrade $$http_upgrade;\n  \
+      \          proxy_set_header Connection \"upgrade\";\n            proxy_buffering off;\n\n            proxy_connect_timeout\
+      \ 60s;\n            proxy_send_timeout 3600s;\n            proxy_read_timeout 3600s;\n        }\n\n        location\
+      \ /services/ {\n            proxy_pass http://services:8080/;\n            proxy_http_version 1.1;\n            proxy_set_header\
+      \ Host $$host;\n            proxy_set_header X-Real-IP $$remote_addr;\n            proxy_set_header X-Forwarded-For\
+      \ $$proxy_add_x_forwarded_for;\n            proxy_set_header X-Forwarded-Proto $$scheme;\n            proxy_set_header\
+      \ Upgrade $$http_upgrade;\n            proxy_set_header Connection \"upgrade\";\n            proxy_buffering off;\n\n\
+      \            proxy_connect_timeout 60s;\n            proxy_send_timeout 3600s;\n            proxy_read_timeout 3600s;\n\
+      \        }\n\n        location /health {\n            proxy_pass http://api:8000/api/health;\n            access_log\
+      \ off;\n        }\n\n        location / {\n            proxy_pass http://web:3000;\n            proxy_http_version 1.1;\n\
+      \            proxy_set_header Host $$host;\n            proxy_set_header X-Real-IP $$remote_addr;\n            proxy_set_header\
+      \ X-Forwarded-For $$proxy_add_x_forwarded_for;\n            proxy_set_header X-Forwarded-Proto $$scheme;\n         \
+      \   proxy_set_header Upgrade $$http_upgrade;\n            proxy_set_header Connection \"upgrade\";\n        }\n    }\n\
+      }\n"
+  agenta_init_db:
+    content: '-- Ensure we are connected to the default postgres database before creating new databases
+
+      \c postgres
+
+
+      -- Create the ''username'' role with a password if it doesn''t exist
+
+      SELECT ''CREATE ROLE username WITH LOGIN PASSWORD ''''password''''''
+
+      WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = ''username'')\gexec
+
+
+      -- Create the ''agenta_oss_core'' database if it doesn''t exist
+
+      SELECT ''CREATE DATABASE agenta_oss_core''
+
+      WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = ''agenta_oss_core'')\gexec
+
+
+      -- Create the ''agenta_oss_tracing'' database if it doesn''t exist
+
+      SELECT ''CREATE DATABASE agenta_oss_tracing''
+
+      WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = ''agenta_oss_tracing'')\gexec
+
+
+      -- Create the ''agenta_oss_supertokens'' database if it doesn''t exist
+
+      SELECT ''CREATE DATABASE agenta_oss_supertokens''
+
+      WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = ''agenta_oss_supertokens'')\gexec
+
+
+      -- Grant necessary permissions to ''username'' for both databases
+
+      GRANT ALL PRIVILEGES ON DATABASE agenta_oss_core TO username;
+
+      GRANT ALL PRIVILEGES ON DATABASE agenta_oss_tracing TO username;
+
+      GRANT ALL PRIVILEGES ON DATABASE agenta_oss_supertokens TO username;
+
+
+      -- Switch to ''agenta_oss_core'' and grant schema permissions
+
+      \c agenta_oss_core
+
+      GRANT ALL ON SCHEMA public TO username;
+
+
+      -- Switch to ''agenta_oss_tracing'' and grant schema permissions
+
+      \c agenta_oss_tracing
+
+      GRANT ALL ON SCHEMA public TO username;
+
+
+      -- Switch to ''agenta_oss_supertokens'' and grant schema permissions
+
+      \c agenta_oss_supertokens
+
+      GRANT ALL ON SCHEMA public TO username;
+
+
+      -- Return to postgres
+
+      \c postgres
+
+      '
