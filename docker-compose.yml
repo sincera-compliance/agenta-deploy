@@ -8,6 +8,9 @@ services:
     environment:
     - AGENTA_SERVICES_INTERNAL_KEY=
     - HOSTNAME=0.0.0.0
+    - AGENTA_WEB_URL=${AGENTA_PUBLIC_URL}
+    - AGENTA_API_URL=${AGENTA_PUBLIC_URL}/api
+    - AGENTA_SERVICES_URL=${AGENTA_PUBLIC_URL}/services
     networks:
     - agenta-oss-gh-network
     restart: always
@@ -395,6 +398,9 @@ services:
     - AGENTA_SERVICES_INTERNAL_KEY=
     - AGENTA_API_INTERNAL_URL=http://api:8000
     - HOSTNAME=0.0.0.0
+    - AGENTA_WEB_URL=${AGENTA_PUBLIC_URL}
+    - AGENTA_API_URL=${AGENTA_PUBLIC_URL}/api
+    - AGENTA_SERVICES_URL=${AGENTA_PUBLIC_URL}/services
     networks:
     - agenta-oss-gh-network
     restart: unless-stopped
