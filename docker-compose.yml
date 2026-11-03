@@ -7,6 +7,7 @@ services:
     - .env
     environment:
     - AGENTA_SERVICES_INTERNAL_KEY=
+    - HOSTNAME=0.0.0.0
     networks:
     - agenta-oss-gh-network
     restart: always
@@ -152,6 +153,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: 'no'
   services:
     image: ghcr.io/agenta-ai/${AGENTA_SERVICES_IMAGE_NAME:-agenta-services}:${AGENTA_SERVICES_IMAGE_TAG:-latest}
     command: 'gunicorn entrypoints.main:app --bind 0.0.0.0:8080 --worker-class uvicorn.workers.UvicornWorker --workers 2 --worker-connections
@@ -354,6 +356,7 @@ services:
     - api
     - web
     - services
+    - web-mobile
     restart: always
     expose:
     - '80'
@@ -383,6 +386,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+  web-mobile:
+    image: ghcr.io/agenta-ai/agenta-web-mobile:latest
+    command: sh -c "node ./mobile/server.js"
+    env_file:
+    - .env
+    environment:
+    - AGENTA_SERVICES_INTERNAL_KEY=
+    - AGENTA_API_INTERNAL_URL=http://api:8000
+    - HOSTNAME=0.0.0.0
+    networks:
+    - agenta-oss-gh-network
+    restart: unless-stopped
 networks:
   agenta-oss-gh-network: null
 volumes:
@@ -399,23 +414,35 @@ configs:
       \ application/javascript application/xml+rss application/json;\n\n    limit_req_zone $$binary_remote_addr zone=api:10m\
       \ rate=10r/s;\n\n    server {\n        listen 80;\n        server_name _;\n\n        add_header X-Frame-Options DENY;\n\
       \        add_header X-Content-Type-Options nosniff;\n        add_header X-XSS-Protection \"1; mode=block\";\n\n    \
-      \    client_max_body_size 32m;\n\n        location /api/ {\n            limit_req zone=api burst=20 nodelay;\n\n   \
-      \         proxy_pass http://api:8000/;\n            proxy_http_version 1.1;\n            proxy_set_header Host $$host;\n\
+      \    client_max_body_size 32m;\n\n        location /api/ {\n            limit_req zone=api burst=20 nodelay;\n     \
+      \       proxy_pass http://api:8000/;\n            proxy_http_version 1.1;\n            proxy_set_header Host $$host;\n\
       \            proxy_set_header X-Real-IP $$remote_addr;\n            proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;\n\
       \            proxy_set_header X-Forwarded-Proto $$scheme;\n            proxy_set_header Upgrade $$http_upgrade;\n  \
-      \          proxy_set_header Connection \"upgrade\";\n            proxy_buffering off;\n\n            proxy_connect_timeout\
+      \          proxy_set_header Connection \"upgrade\";\n            proxy_buffering off;\n            proxy_connect_timeout\
       \ 60s;\n            proxy_send_timeout 3600s;\n            proxy_read_timeout 3600s;\n        }\n\n        location\
       \ /services/ {\n            proxy_pass http://services:8080/;\n            proxy_http_version 1.1;\n            proxy_set_header\
       \ Host $$host;\n            proxy_set_header X-Real-IP $$remote_addr;\n            proxy_set_header X-Forwarded-For\
       \ $$proxy_add_x_forwarded_for;\n            proxy_set_header X-Forwarded-Proto $$scheme;\n            proxy_set_header\
-      \ Upgrade $$http_upgrade;\n            proxy_set_header Connection \"upgrade\";\n            proxy_buffering off;\n\n\
+      \ Upgrade $$http_upgrade;\n            proxy_set_header Connection \"upgrade\";\n            proxy_buffering off;\n\
       \            proxy_connect_timeout 60s;\n            proxy_send_timeout 3600s;\n            proxy_read_timeout 3600s;\n\
-      \        }\n\n        location /health {\n            proxy_pass http://api:8000/api/health;\n            access_log\
-      \ off;\n        }\n\n        location / {\n            proxy_pass http://web:3000;\n            proxy_http_version 1.1;\n\
-      \            proxy_set_header Host $$host;\n            proxy_set_header X-Real-IP $$remote_addr;\n            proxy_set_header\
-      \ X-Forwarded-For $$proxy_add_x_forwarded_for;\n            proxy_set_header X-Forwarded-Proto $$scheme;\n         \
-      \   proxy_set_header Upgrade $$http_upgrade;\n            proxy_set_header Connection \"upgrade\";\n        }\n    }\n\
-      }\n"
+      \        }\n\n        location = /m {\n            set $$mobile_upstream http://web-mobile:3000;\n            proxy_pass\
+      \ $$mobile_upstream;\n            proxy_http_version 1.1;\n            proxy_set_header Host $$host;\n            proxy_set_header\
+      \ X-Real-IP $$remote_addr;\n            proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;\n            proxy_set_header\
+      \ X-Forwarded-Proto $$scheme;\n            proxy_set_header Upgrade $$http_upgrade;\n            proxy_set_header Connection\
+      \ \"upgrade\";\n        }\n\n        location /m/embed/ {\n            add_header X-Content-Type-Options nosniff;\n\
+      \            set $$mobile_upstream http://web-mobile:3000;\n            proxy_pass $$mobile_upstream;\n            proxy_http_version\
+      \ 1.1;\n            proxy_set_header Host $$host;\n            proxy_set_header X-Real-IP $$remote_addr;\n         \
+      \   proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;\n            proxy_set_header X-Forwarded-Proto $$scheme;\n\
+      \        }\n\n        location /m/ {\n            set $$mobile_upstream http://web-mobile:3000;\n            proxy_pass\
+      \ $$mobile_upstream;\n            proxy_http_version 1.1;\n            proxy_set_header Host $$host;\n            proxy_set_header\
+      \ X-Real-IP $$remote_addr;\n            proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;\n            proxy_set_header\
+      \ X-Forwarded-Proto $$scheme;\n            proxy_set_header Upgrade $$http_upgrade;\n            proxy_set_header Connection\
+      \ \"upgrade\";\n        }\n\n        location /health {\n            proxy_pass http://api:8000/api/health;\n      \
+      \      access_log off;\n        }\n\n        location / {\n            proxy_pass http://web:3000;\n            proxy_http_version\
+      \ 1.1;\n            proxy_set_header Host $$host;\n            proxy_set_header X-Real-IP $$remote_addr;\n         \
+      \   proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;\n            proxy_set_header X-Forwarded-Proto $$scheme;\n\
+      \            proxy_set_header Upgrade $$http_upgrade;\n            proxy_set_header Connection \"upgrade\";\n      \
+      \  }\n    }\n}\n"
   agenta_init_db:
     content: '-- Ensure we are connected to the default postgres database before creating new databases
 
